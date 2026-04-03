@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spese Viaggio</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f2f5;
+            color: #1a1a2e;
+            min-height: 100vh;
+        }
+        .container { max-width: 700px; margin: 0 auto; padding: 16px; }
+        h1 {
+            text-align: center;
+            padding: 24px 0 8px;
+            font-size: 1.8em;
+            color: #16213e;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 24px;
+            font-size: 0.95em;
+        }
+
+        /* Auth bar */
+        .auth-bar {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 0;
+        }
+        .auth-bar input[type="password"] {
+            flex: 0 1 220px;
+        }
+        .admin-badge {
+            background: #2a9d8f;
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        /* Cards */
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .card h2 {
+            font-size: 1.1em;
+            margin-bottom: 12px;
+            color: #16213e;
+            border-bottom: 2px solid #e8e8e8;
+            padding-bottom: 8px;
+        }
+        .admin-only { display: none; }
+
+        /* Forms */
+        .form-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        input, select {
+            padding: 10px 12px;
+            border: 1.5px solid #ddd;
+            border-radius: 8px;
+            font-size: 0.95em;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus, select:focus { border-color: #4361ee; }
+        input[type="text"], input[type="number"], input[type="password"] { flex: 1; min-width: 0; }
+        select { flex: 1; min-width: 0; background: #fff; }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95em;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.85; }
+        .btn-primary { background: #4361ee; color: #fff; }
+        .btn-danger { background: #e63946; color: #fff; }
+        .btn-success { background: #2a9d8f; color: #fff; }
+        .btn-small { padding: 6px 12px; font-size: 0.85em; }
+        .btn-logout {
+            background: transparent;
+            color: #e63946;
+            border: 1.5px solid #e63946;
+            padding: 8px 14px;
+        }
+
+        /* Participants */
+        .participants-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .participant-tag {
+            background: #e8f0fe;
+            color: #1a56db;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .participant-tag .remove {
+            cursor: pointer;
+            font-weight: bold;
+            color: #e63946;
+            font-size: 1.1em;
+            line-height: 1;
+            display: none;
+        }
+        body.is-admin .participant-tag .remove { display: inline; }
+
+        /* Checkbox group */
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 8px 0;
+        }
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            background: #f5f5f5;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .checkbox-group label:has(input:checked) {
+            background: #e8f0fe;
+            color: #1a56db;
+        }
+        .checkbox-group input[type="checkbox"] { width: 16px; height: 16px; }
+
+        /* Expenses */
+        .expense-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            gap: 8px;
+        }
+        .expense-item:last-child { border-bottom: none; }
+        .expense-info { flex: 1; }
+        .expense-desc { font-weight: 600; }
+        .expense-detail { font-size: 0.85em; color: #666; margin-top: 2px; }
+        .expense-amount {
+            font-weight: 700;
+            font-size: 1.1em;
+            color: #e63946;
+            white-space: nowrap;
+        }
+        .expense-item .btn-danger { display: none; }
+        body.is-admin .expense-item .btn-danger { display: inline-block; }
+
+        /* Refunds */
+        .refund-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            gap: 8px;
+        }
+        .refund-item:last-child { border-bottom: none; }
+        .refund-info { flex: 1; }
+        .refund-detail { font-size: 0.85em; color: #666; margin-top: 2px; }
+        .refund-amount {
+            font-weight: 700;
+            font-size: 1.1em;
+            color: #2a9d8f;
+            white-space: nowrap;
+        }
+        .refund-item .btn-danger { display: none; }
+        body.is-admin .refund-item .btn-danger { display: inline-block; }
+
+        /* Summary */
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-name { font-weight: 600; min-width: 80px; }
+        .summary-paid { color: #2a9d8f; }
+        .positive { color: #2a9d8f; }
+        .negative { color: #e63946; }
+
+        /* Transfers */
+        .transfer-item {
+            background: #fff8e1;
+            border-left: 4px solid #f4a261;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.95em;
+        }
+        .transfer-item strong { color: #e76f51; }
+
+        .total-banner {
+            text-align: center;
+            font-size: 1.4em;
+            font-weight: 700;
+            color: #16213e;
+            padding: 8px 0;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 20px;
+            font-style: italic;
+        }
+
+        @media (max-width: 500px) {
+            .form-row { flex-direction: column; }
+            input, select, button { width: 100%; }
+            .summary-row { font-size: 0.9em; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Spese Viaggio</h1>
+    <p class="subtitle">Tieni traccia delle spese e dividi il conto equamente</p>
+
+    <!-- Login admin -->
+    <div class="auth-bar" id="authBar">
+        <input type="password" id="adminPw" placeholder="Password admin" onkeydown="if(event.key==='Enter')doLogin()">
+        <button class="btn-primary" onclick="doLogin()">Accedi</button>
+    </div>
+
+    <!-- Partecipanti (admin) -->
+    <div class="card admin-only" id="cardAddParticipant">
+        <h2>Gestisci Partecipanti</h2>
+        <div class="form-row">
+            <input type="text" id="newParticipant" placeholder="Nome partecipante" onkeydown="if(event.key==='Enter')addParticipant()">
+            <button class="btn-primary" onclick="addParticipant()">Aggiungi</button>
+        </div>
+    </div>
+
+    <!-- Partecipanti (tutti) -->
+    <div class="card">
+        <h2>Partecipanti</h2>
+        <div class="participants-list" id="participantsList">
+            <div class="empty-state">Caricamento...</div>
+        </div>
+    </div>
+
+    <!-- Nuova spesa (admin) -->
+    <div class="card admin-only" id="cardAddExpense">
+        <h2>Aggiungi Spesa</h2>
+        <div class="form-row">
+            <input type="text" id="expDesc" placeholder="Descrizione (es. cena, benzina...)">
+        </div>
+        <div class="form-row">
+            <input type="number" id="expAmount" placeholder="Importo (EUR)" step="0.01" min="0">
+            <select id="expPayer"></select>
+        </div>
+        <p style="font-size:0.9em;color:#666;margin:8px 0 4px;">Dividi tra:</p>
+        <div class="checkbox-group" id="expSplitGroup"></div>
+        <div class="form-row" style="margin-top:8px;">
+            <button class="btn-primary" onclick="addExpense()" style="width:100%;">Aggiungi Spesa</button>
+        </div>
+    </div>
+
+    <!-- Restituzione (admin) -->
+    <div class="card admin-only" id="cardAddRefund">
+        <h2>Registra Restituzione</h2>
+        <div class="form-row">
+            <select id="refundFrom"><option value="">Da chi</option></select>
+            <select id="refundTo"><option value="">A chi</option></select>
+            <input type="number" id="refundAmount" placeholder="Importo (EUR)" step="0.01" min="0">
+        </div>
+        <div class="form-row">
+            <button class="btn-success" onclick="addRefund()" style="width:100%;">Registra Restituzione</button>
+        </div>
+    </div>
+
+    <!-- Lista restituzioni -->
+    <div class="card">
+        <h2>Restituzioni</h2>
+        <div id="refundsList"><div class="empty-state">Nessuna restituzione registrata</div></div>
+    </div>
+
+    <!-- Lista spese -->
+    <div class="card">
+        <h2>Elenco Spese</h2>
+        <div id="expensesList"><div class="empty-state">Nessuna spesa registrata</div></div>
+    </div>
+
+    <!-- Riepilogo -->
+    <div class="card">
+        <h2>Riepilogo</h2>
+        <div class="total-banner" id="totalBanner">Totale: 0,00 EUR</div>
+        <div id="summaryList"></div>
+    </div>
+
+    <!-- Saldo finale -->
+    <div class="card">
+        <h2>Saldo Finale - Chi paga chi</h2>
+        <div id="transfersList"><div class="empty-state">Nessun trasferimento necessario</div></div>
+    </div>
+</div>
+
+<script>
+    let participants = [];
+    let expenses = [];
+    let refunds = [];
+    let adminPassword = null;
+
+    // --- AUTH ---
+    function doLogin() {
+        const pw = document.getElementById('adminPw').value;
+        if (!pw) return;
+        adminPassword = pw;
+        document.body.classList.add('is-admin');
+        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'block');
+        document.getElementById('authBar').innerHTML =
+            '<span class="admin-badge">Admin</span> ' +
+            '<button class="btn-logout" onclick="doLogout()">Esci</button>';
+        renderAll();
+    }
+
+    function doLogout() {
+        adminPassword = null;
+        document.body.classList.remove('is-admin');
+        document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
+        document.getElementById('authBar').innerHTML =
+            '<input type="password" id="adminPw" placeholder="Password admin" onkeydown="if(event.key===\'Enter\')doLogin()">' +
+            '<button class="btn-primary" onclick="doLogin()">Accedi</button>';
+    }
+
+    // --- API helpers ---
+    async function api(method, url, body) {
+        const opts = {
+            method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+        if (adminPassword) {
+            opts.headers['X-Admin-Password'] = adminPassword;
+        }
+        if (body) opts.body = JSON.stringify(body);
+        const res = await fetch(url, opts);
+        const data = await res.json();
+        if (!res.ok) {
+            if (res.status === 401) {
+                alert('Password admin errata!');
+                doLogout();
+            } else {
+                alert('Errore: ' + (data.error || 'sconosciuto'));
+            }
+            return null;
+        }
+        return data;
+    }
+
+    async function loadData() {
+        const data = await api('GET', '/api/data');
+        if (data) {
+            participants = data.participants || [];
+            expenses = data.expenses || [];
+            refunds = data.refunds || [];
+            renderAll();
+        }
+    }
+
+    // --- CRUD ---
+    async function addParticipant() {
+        const input = document.getElementById('newParticipant');
+        const name = input.value.trim();
+        if (!name) return;
+        const result = await api('POST', '/api/participants', { name });
+        if (result) {
+            input.value = '';
+            await loadData();
+        }
+    }
+
+    async function removeParticipant(id, name) {
+        const hasExpenses = expenses.some(e => e.payer === name || (e.splitAmong && e.splitAmong.includes(name)));
+        const hasRefunds = refunds.some(r => r.from === name || r.to === name);
+        if (hasExpenses || hasRefunds) {
+            if (!confirm(name + ' ha spese o restituzioni associate. Verranno eliminate. Continuare?')) return;
+        } else {
+            if (!confirm('Rimuovere ' + name + '?')) return;
+        }
+        const result = await api('DELETE', '/api/participants/' + id);
+        if (result) await loadData();
+    }
+
+    async function addExpense() {
+        const desc = document.getElementById('expDesc').value.trim();
+        const amount = parseFloat(document.getElementById('expAmount').value);
+        const payer = document.getElementById('expPayer').value;
+
+        if (!desc) { alert('Inserisci una descrizione'); return; }
+        if (!amount || amount <= 0) { alert('Inserisci un importo valido'); return; }
+        if (!payer) { alert('Seleziona chi ha pagato'); return; }
+
+        const checkboxes = document.querySelectorAll('#expSplitGroup input[type="checkbox"]:checked');
+        const splitAmong = Array.from(checkboxes).map(cb => cb.value);
+        if (splitAmong.length === 0) { alert('Seleziona almeno una persona tra cui dividere'); return; }
+
+        const result = await api('POST', '/api/expenses', { desc, amount, payer, splitAmong });
+        if (result) {
+            document.getElementById('expDesc').value = '';
+            document.getElementById('expAmount').value = '';
+            await loadData();
+        }
+    }
+
+    async function removeExpense(id) {
+        if (!confirm('Eliminare questa spesa?')) return;
+        const result = await api('DELETE', '/api/expenses/' + id);
+        if (result) await loadData();
+    }
+
+    async function addRefund() {
+        const from = document.getElementById('refundFrom').value;
+        const to = document.getElementById('refundTo').value;
+        const amount = parseFloat(document.getElementById('refundAmount').value);
+
+        if (!from) { alert('Seleziona chi restituisce'); return; }
+        if (!to) { alert('Seleziona chi riceve'); return; }
+        if (from === to) { alert('Le due persone devono essere diverse'); return; }
+        if (!amount || amount <= 0) { alert('Inserisci un importo valido'); return; }
+
+        const result = await api('POST', '/api/refunds', { from, to, amount });
+        if (result) {
+            document.getElementById('refundAmount').value = '';
+            await loadData();
+        }
+    }
+
+    async function removeRefund(id) {
+        if (!confirm('Eliminare questa restituzione?')) return;
+        const result = await api('DELETE', '/api/refunds/' + id);
+        if (result) await loadData();
+    }
+
+    // --- CALCOLI ---
+    function calculateBalances() {
+        const names = participants.map(p => p.name);
+        const balances = {};
+        names.forEach(n => balances[n] = { paid: 0, owes: 0 });
+
+        expenses.forEach(exp => {
+            if (balances[exp.payer] !== undefined) {
+                balances[exp.payer].paid += exp.amount;
+            }
+            const share = exp.amount / exp.splitAmong.length;
+            exp.splitAmong.forEach(n => {
+                if (balances[n] !== undefined) balances[n].owes += share;
+            });
+        });
+
+        refunds.forEach(ref => {
+            if (balances[ref.from] !== undefined) balances[ref.from].paid += ref.amount;
+            if (balances[ref.to] !== undefined) balances[ref.to].paid -= ref.amount;
+        });
+
+        return balances;
+    }
+
+    function calculateTransfers(balances) {
+        const names = participants.map(p => p.name);
+        let debtors = [];
+        let creditors = [];
+
+        names.forEach(n => {
+            const net = balances[n].paid - balances[n].owes;
+            if (net < -0.01) debtors.push({ name: n, amount: -net });
+            else if (net > 0.01) creditors.push({ name: n, amount: net });
+        });
+
+        debtors.sort((a, b) => b.amount - a.amount);
+        creditors.sort((a, b) => b.amount - a.amount);
+
+        const transfers = [];
+        let i = 0, j = 0;
+        while (i < debtors.length && j < creditors.length) {
+            const transfer = Math.min(debtors[i].amount, creditors[j].amount);
+            if (transfer > 0.01) {
+                transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: transfer });
+            }
+            debtors[i].amount -= transfer;
+            creditors[j].amount -= transfer;
+            if (debtors[i].amount < 0.01) i++;
+            if (creditors[j].amount < 0.01) j++;
+        }
+        return transfers;
+    }
+
+    function fmt(n) {
+        return n.toFixed(2).replace('.', ',') + ' \u20AC';
+    }
+
+    // --- RENDER ---
+    function renderAll() {
+        const names = participants.map(p => p.name);
+
+        // Participants
+        const pList = document.getElementById('participantsList');
+        if (participants.length === 0) {
+            pList.innerHTML = '<div class="empty-state">Nessun partecipante</div>';
+        } else {
+            pList.innerHTML = participants.map(p =>
+                '<span class="participant-tag">' + p.name +
+                ' <span class="remove" onclick="removeParticipant(\'' + p.id + '\',\'' + p.name.replace(/'/g, "\\'") + '\')">\u00D7</span></span>'
+            ).join('');
+        }
+
+        // Payer dropdown
+        const payerSelect = document.getElementById('expPayer');
+        const curPayer = payerSelect.value;
+        payerSelect.innerHTML = '<option value="">Chi ha pagato?</option>' +
+            names.map(n => '<option value="' + n + '"' + (n === curPayer ? ' selected' : '') + '>' + n + '</option>').join('');
+
+        // Split checkboxes
+        document.getElementById('expSplitGroup').innerHTML = names.map(n =>
+            '<label><input type="checkbox" value="' + n + '" checked> ' + n + '</label>'
+        ).join('');
+
+        // Refund dropdowns
+        const refFrom = document.getElementById('refundFrom');
+        const curFrom = refFrom.value;
+        refFrom.innerHTML = '<option value="">Da chi</option>' +
+            names.map(n => '<option value="' + n + '"' + (n === curFrom ? ' selected' : '') + '>' + n + '</option>').join('');
+
+        const refTo = document.getElementById('refundTo');
+        const curTo = refTo.value;
+        refTo.innerHTML = '<option value="">A chi</option>' +
+            names.map(n => '<option value="' + n + '"' + (n === curTo ? ' selected' : '') + '>' + n + '</option>').join('');
+
+        // Refunds list
+        const rList = document.getElementById('refundsList');
+        if (refunds.length === 0) {
+            rList.innerHTML = '<div class="empty-state">Nessuna restituzione registrata</div>';
+        } else {
+            rList.innerHTML = refunds.map(r =>
+                '<div class="refund-item">' +
+                    '<div class="refund-info"><div class="refund-detail"><strong>' + r.from + '</strong> ha restituito a <strong>' + r.to + '</strong></div></div>' +
+                    '<div class="refund-amount">' + fmt(r.amount) + '</div>' +
+                    '<button class="btn-danger btn-small" onclick="removeRefund(\'' + r.id + '\')">X</button>' +
+                '</div>'
+            ).join('');
+        }
+
+        // Expenses list
+        const eList = document.getElementById('expensesList');
+        if (expenses.length === 0) {
+            eList.innerHTML = '<div class="empty-state">Nessuna spesa registrata</div>';
+        } else {
+            eList.innerHTML = expenses.map(e =>
+                '<div class="expense-item">' +
+                    '<div class="expense-info">' +
+                        '<div class="expense-desc">' + e.desc + '</div>' +
+                        '<div class="expense-detail">Pagato da <strong>' + e.payer + '</strong> \u2022 Diviso tra: ' + e.splitAmong.join(', ') + '</div>' +
+                    '</div>' +
+                    '<div class="expense-amount">' + fmt(e.amount) + '</div>' +
+                    '<button class="btn-danger btn-small" onclick="removeExpense(\'' + e.id + '\')">X</button>' +
+                '</div>'
+            ).join('');
+        }
+
+        // Summary
+        const balances = calculateBalances();
+        const total = expenses.reduce((s, e) => s + e.amount, 0);
+
+        // Costo vacanza per partecipante
+        const costPerPerson = {};
+        names.forEach(n => costPerPerson[n] = 0);
+        expenses.forEach(exp => {
+            const share = exp.amount / exp.splitAmong.length;
+            exp.splitAmong.forEach(n => {
+                if (costPerPerson[n] !== undefined) costPerPerson[n] += share;
+            });
+        });
+
+        document.getElementById('totalBanner').innerHTML =
+            'Totale spese: ' + fmt(total) +
+            (names.length > 0 ? '<br><span style="font-size:0.7em;color:#666;">Media a testa: ' + fmt(total / names.length) + '</span>' : '');
+
+        const sList = document.getElementById('summaryList');
+        if (names.length === 0) {
+            sList.innerHTML = '<div class="empty-state">Aggiungi partecipanti per vedere il riepilogo</div>';
+        } else {
+            sList.innerHTML = names.map(n => {
+                const b = balances[n];
+                const net = b.paid - b.owes;
+                return '<div class="summary-row">' +
+                    '<span class="summary-name">' + n + '</span>' +
+                    '<span style="color:#555;font-size:0.9em;">Costo: ' + fmt(costPerPerson[n]) + '</span>' +
+                    '<span class="summary-paid">Pagato: ' + fmt(b.paid) + '</span>' +
+                    '<span style="font-weight:700;font-size:1.05em;" class="' + (net >= 0 ? 'positive' : 'negative') + '">' + (net >= 0 ? '+' : '') + fmt(net) + '</span>' +
+                '</div>';
+            }).join('');
+        }
+
+        // Transfers
+        const tList = document.getElementById('transfersList');
+        const transfers = calculateTransfers(balances);
+        if (transfers.length === 0) {
+            tList.innerHTML = '<div class="empty-state">Tutti i conti sono in pari!</div>';
+        } else {
+            tList.innerHTML = transfers.map(t =>
+                '<div class="transfer-item"><strong>' + t.from + '</strong> deve dare <strong>' + fmt(t.amount) + '</strong> a <strong>' + t.to + '</strong></div>'
+            ).join('');
+        }
+    }
+
+    // --- INIT ---
+    loadData();
+    // Aggiorna i dati ogni 30 secondi per chi sta solo guardando
+    setInterval(loadData, 30000);
+</script>
+
+</body>
+</html>
