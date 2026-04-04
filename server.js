@@ -1,35 +1,39 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
+const { createClient } = require("@libsql/client");
 
 const app = express();
 app.use(express.json());
 app.use(express.static("public"));
 
-// --- Database JSON su disco ---
-const DB_PATH = path.join(__dirname, ".data", "db.json");
+// --- Database Turso (SQLite cloud) ---
+const db = createClient({
+  url: process.env.TURSO_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 
-function readDB() {
-  try {
-    return JSON.parse(fs.readFileSync(DB_PATH, "utf8"));
-  } catch {
-    return { participants: [], expenses: [], refunds: [] };
-  }
+async function initDB() {
+  await db.batch([
+    `CREATE TABLE IF NOT EXISTS participants (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS expenses (
+      id TEXT PRIMARY KEY,
+      desc TEXT NOT NULL,
+      amount REAL NOT NULL,
+      payer TEXT NOT NULL,
+      splitAmong TEXT NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS refunds (
+      id TEXT PRIMARY KEY,
+      "from" TEXT NOT NULL,
+      "to" TEXT NOT NULL,
+      amount REAL NOT NULL
+    )`,
+  ]);
 }
 
-function writeDB(data) {
-  // .data e' la cartella persistente di Glitch
-  const dir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
-
-// Inizializza il db se non esiste
-if (!fs.existsSync(DB_PATH)) {
-  writeDB({ participants: [], expenses: [], refunds: [] });
-}
-
-// --- Password admin (cambiala!) ---
+// --- Password admin ---
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "cambiami123";
 
 function checkAdmin(req, res, next) {
@@ -40,71 +44,87 @@ function checkAdmin(req, res, next) {
   next();
 }
 
-// --- API lettura (pubbliche) ---
-app.get("/api/data", (req, res) => {
-  res.json(readDB());
+// --- API lettura (pubblica) ---
+app.get("/api/data", async (req, res) => {
+  const [participants, expenses, refunds] = await Promise.all([
+    db.execute("SELECT * FROM participants"),
+    db.execute("SELECT * FROM expenses"),
+    db.execute('SELECT id, "from", "to", amount FROM refunds'),
+  ]);
+  res.json({
+    participants: participants.rows,
+    expenses: expenses.rows.map((e) => ({
+      ...e,
+      splitAmong: JSON.parse(e.splitAmong),
+    })),
+    refunds: refunds.rows,
+  });
 });
 
 // --- API scrittura (protette da password) ---
 
 // Partecipanti
-app.post("/api/participants", checkAdmin, (req, res) => {
+app.post("/api/participants", checkAdmin, async (req, res) => {
   const { name } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: "Nome richiesto" });
-  const db = readDB();
-  if (db.participants.some((p) => p.name === name.trim())) {
-    return res.status(400).json({ error: "Partecipante gia' presente" });
+  const id = Date.now().toString();
+  try {
+    await db.execute({
+      sql: "INSERT INTO participants (id, name) VALUES (?, ?)",
+      args: [id, name.trim()],
+    });
+    res.json({ id, name: name.trim() });
+  } catch (e) {
+    if (e.message.includes("UNIQUE")) {
+      return res.status(400).json({ error: "Partecipante gia' presente" });
+    }
+    throw e;
   }
-  const participant = { id: Date.now().toString(), name: name.trim() };
-  db.participants.push(participant);
-  writeDB(db);
-  res.json(participant);
 });
 
-app.delete("/api/participants/:id", checkAdmin, (req, res) => {
-  const db = readDB();
-  const p = db.participants.find((p) => p.id === req.params.id);
-  if (!p) return res.status(404).json({ error: "Non trovato" });
-  // Rimuovi spese e restituzioni associate
-  db.expenses = db.expenses.filter(
-    (e) => e.payer !== p.name && !e.splitAmong.includes(p.name)
-  );
-  db.refunds = db.refunds.filter(
-    (r) => r.from !== p.name && r.to !== p.name
-  );
-  db.participants = db.participants.filter((x) => x.id !== req.params.id);
-  writeDB(db);
+app.delete("/api/participants/:id", checkAdmin, async (req, res) => {
+  const row = await db.execute({
+    sql: "SELECT name FROM participants WHERE id = ?",
+    args: [req.params.id],
+  });
+  if (!row.rows.length) return res.status(404).json({ error: "Non trovato" });
+  const name = row.rows[0].name;
+  await db.batch([
+    { sql: "DELETE FROM expenses WHERE payer = ? OR splitAmong LIKE ?", args: [name, `%"${name}"%`] },
+    { sql: 'DELETE FROM refunds WHERE "from" = ? OR "to" = ?', args: [name, name] },
+    { sql: "DELETE FROM participants WHERE id = ?", args: [req.params.id] },
+  ]);
   res.json({ ok: true });
 });
 
 // Spese
-app.post("/api/expenses", checkAdmin, (req, res) => {
+app.post("/api/expenses", checkAdmin, async (req, res) => {
   const { desc, amount, payer, splitAmong } = req.body;
   if (!desc || !amount || !payer || !splitAmong || !splitAmong.length) {
     return res.status(400).json({ error: "Dati incompleti" });
   }
-  const db = readDB();
+  const id = Date.now().toString();
   const expense = {
-    id: Date.now().toString(),
+    id,
     desc: desc.trim(),
     amount: parseFloat(amount),
     payer,
     splitAmong,
   };
-  db.expenses.push(expense);
-  writeDB(db);
+  await db.execute({
+    sql: "INSERT INTO expenses (id, desc, amount, payer, splitAmong) VALUES (?, ?, ?, ?, ?)",
+    args: [id, expense.desc, expense.amount, expense.payer, JSON.stringify(splitAmong)],
+  });
   res.json(expense);
 });
 
-app.delete("/api/expenses/:id", checkAdmin, (req, res) => {
-  const db = readDB();
-  db.expenses = db.expenses.filter((e) => e.id !== req.params.id);
-  writeDB(db);
+app.delete("/api/expenses/:id", checkAdmin, async (req, res) => {
+  await db.execute({ sql: "DELETE FROM expenses WHERE id = ?", args: [req.params.id] });
   res.json({ ok: true });
 });
 
 // Restituzioni
-app.post("/api/refunds", checkAdmin, (req, res) => {
+app.post("/api/refunds", checkAdmin, async (req, res) => {
   const { from, to, amount } = req.body;
   if (!from || !to || !amount) {
     return res.status(400).json({ error: "Dati incompleti" });
@@ -112,27 +132,24 @@ app.post("/api/refunds", checkAdmin, (req, res) => {
   if (from === to) {
     return res.status(400).json({ error: "Devono essere persone diverse" });
   }
-  const db = readDB();
-  const refund = {
-    id: Date.now().toString(),
-    from,
-    to,
-    amount: parseFloat(amount),
-  };
-  db.refunds.push(refund);
-  writeDB(db);
+  const id = Date.now().toString();
+  const refund = { id, from, to, amount: parseFloat(amount) };
+  await db.execute({
+    sql: 'INSERT INTO refunds (id, "from", "to", amount) VALUES (?, ?, ?, ?)',
+    args: [id, from, to, refund.amount],
+  });
   res.json(refund);
 });
 
-app.delete("/api/refunds/:id", checkAdmin, (req, res) => {
-  const db = readDB();
-  db.refunds = db.refunds.filter((r) => r.id !== req.params.id);
-  writeDB(db);
+app.delete("/api/refunds/:id", checkAdmin, async (req, res) => {
+  await db.execute({ sql: "DELETE FROM refunds WHERE id = ?", args: [req.params.id] });
   res.json({ ok: true });
 });
 
 // --- Start ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Server avviato su porta " + PORT);
+initDB().then(() => {
+  app.listen(PORT, () => {
+    console.log("Server avviato su porta " + PORT);
+  });
 });
