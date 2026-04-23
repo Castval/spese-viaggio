@@ -95,12 +95,62 @@
         .btn-primary { background: #4361ee; color: #fff; }
         .btn-danger { background: #e63946; color: #fff; }
         .btn-success { background: #2a9d8f; color: #fff; }
+        .btn-secondary { background: #e0e4ea; color: #16213e; }
         .btn-small { padding: 6px 12px; font-size: 0.85em; }
         .btn-logout {
             background: transparent;
             color: #e63946;
             border: 1.5px solid #e63946;
             padding: 8px 14px;
+        }
+
+        /* Trips list */
+        .trip-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            border: 1.5px solid #e8e8e8;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            gap: 8px;
+        }
+        .trip-item:hover {
+            border-color: #4361ee;
+            background: #f6f8ff;
+        }
+        .trip-name {
+            font-weight: 600;
+            font-size: 1.05em;
+            color: #16213e;
+            flex: 1;
+        }
+        .trip-item .btn-danger { display: none; }
+        body.is-admin .trip-item .btn-danger { display: inline-block; }
+
+        .current-trip-banner {
+            background: linear-gradient(135deg, #4361ee, #3a56d4);
+            color: #fff;
+            padding: 14px 18px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .current-trip-banner .label {
+            font-size: 0.8em;
+            opacity: 0.85;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .current-trip-banner .name {
+            font-weight: 700;
+            font-size: 1.15em;
         }
 
         /* Participants */
@@ -258,84 +308,117 @@
         <button class="btn-primary" onclick="doLogin()">Accedi</button>
     </div>
 
-    <!-- Partecipanti (admin) -->
-    <div class="card admin-only" id="cardAddParticipant">
-        <h2>Gestisci Partecipanti</h2>
-        <div class="form-row">
-            <input type="text" id="newParticipant" placeholder="Nome partecipante" onkeydown="if(event.key==='Enter')addParticipant()">
-            <button class="btn-primary" onclick="addParticipant()">Aggiungi</button>
+    <!-- ========== SCHERMATA SELEZIONE VIAGGIO ========== -->
+    <div id="tripSelectView">
+        <!-- Crea viaggio (admin) -->
+        <div class="card admin-only" id="cardAddTrip">
+            <h2>Crea nuovo viaggio</h2>
+            <div class="form-row">
+                <input type="text" id="newTripName" placeholder="Nome viaggio (es. Sicilia 2026)" onkeydown="if(event.key==='Enter')addTrip()">
+                <button class="btn-primary" onclick="addTrip()">Crea</button>
+            </div>
+        </div>
+
+        <!-- Elenco viaggi -->
+        <div class="card">
+            <h2>Scegli un viaggio</h2>
+            <div id="tripsList"><div class="empty-state">Caricamento...</div></div>
         </div>
     </div>
 
-    <!-- Partecipanti (tutti) -->
-    <div class="card">
-        <h2>Partecipanti</h2>
-        <div class="participants-list" id="participantsList">
-            <div class="empty-state">Caricamento...</div>
+    <!-- ========== VISTA VIAGGIO SELEZIONATO ========== -->
+    <div id="tripView" style="display:none;">
+        <div class="current-trip-banner">
+            <div>
+                <div class="label">Viaggio selezionato</div>
+                <div class="name" id="currentTripName"></div>
+            </div>
+            <button class="btn-secondary btn-small" onclick="changeTrip()">Cambia viaggio</button>
         </div>
-    </div>
 
-    <!-- Nuova spesa (admin) -->
-    <div class="card admin-only" id="cardAddExpense">
-        <h2>Aggiungi Spesa</h2>
-        <div class="form-row">
-            <input type="text" id="expDesc" placeholder="Descrizione (es. cena, benzina...)">
+        <!-- Partecipanti (admin) -->
+        <div class="card admin-only" id="cardAddParticipant">
+            <h2>Gestisci Partecipanti</h2>
+            <div class="form-row">
+                <input type="text" id="newParticipant" placeholder="Nome partecipante" onkeydown="if(event.key==='Enter')addParticipant()">
+                <button class="btn-primary" onclick="addParticipant()">Aggiungi</button>
+            </div>
         </div>
-        <div class="form-row">
-            <input type="number" id="expAmount" placeholder="Importo (EUR)" step="0.01" min="0">
-            <select id="expPayer"></select>
+
+        <!-- Partecipanti (tutti) -->
+        <div class="card">
+            <h2>Partecipanti</h2>
+            <div class="participants-list" id="participantsList">
+                <div class="empty-state">Caricamento...</div>
+            </div>
         </div>
-        <p style="font-size:0.9em;color:#666;margin:8px 0 4px;">Dividi tra:</p>
-        <div class="checkbox-group" id="expSplitGroup"></div>
-        <div class="form-row" style="margin-top:8px;">
-            <button class="btn-primary" onclick="addExpense()" style="width:100%;">Aggiungi Spesa</button>
+
+        <!-- Nuova spesa (admin) -->
+        <div class="card admin-only" id="cardAddExpense">
+            <h2>Aggiungi Spesa</h2>
+            <div class="form-row">
+                <input type="text" id="expDesc" placeholder="Descrizione (es. cena, benzina...)">
+            </div>
+            <div class="form-row">
+                <input type="number" id="expAmount" placeholder="Importo (EUR)" step="0.01" min="0">
+                <select id="expPayer"></select>
+            </div>
+            <p style="font-size:0.9em;color:#666;margin:8px 0 4px;">Dividi tra:</p>
+            <div class="checkbox-group" id="expSplitGroup"></div>
+            <div class="form-row" style="margin-top:8px;">
+                <button class="btn-primary" onclick="addExpense()" style="width:100%;">Aggiungi Spesa</button>
+            </div>
         </div>
-    </div>
 
-    <!-- Restituzione (admin) -->
-    <div class="card admin-only" id="cardAddRefund">
-        <h2>Registra Restituzione</h2>
-        <div class="form-row">
-            <select id="refundFrom"><option value="">Da chi</option></select>
-            <select id="refundTo"><option value="">A chi</option></select>
-            <input type="number" id="refundAmount" placeholder="Importo (EUR)" step="0.01" min="0">
+        <!-- Restituzione (admin) -->
+        <div class="card admin-only" id="cardAddRefund">
+            <h2>Registra Restituzione</h2>
+            <div class="form-row">
+                <select id="refundFrom"><option value="">Da chi</option></select>
+                <select id="refundTo"><option value="">A chi</option></select>
+                <input type="number" id="refundAmount" placeholder="Importo (EUR)" step="0.01" min="0">
+            </div>
+            <div class="form-row">
+                <button class="btn-success" onclick="addRefund()" style="width:100%;">Registra Restituzione</button>
+            </div>
         </div>
-        <div class="form-row">
-            <button class="btn-success" onclick="addRefund()" style="width:100%;">Registra Restituzione</button>
+
+        <!-- Lista restituzioni -->
+        <div class="card">
+            <h2>Restituzioni</h2>
+            <div id="refundsList"><div class="empty-state">Nessuna restituzione registrata</div></div>
         </div>
-    </div>
 
-    <!-- Lista restituzioni -->
-    <div class="card">
-        <h2>Restituzioni</h2>
-        <div id="refundsList"><div class="empty-state">Nessuna restituzione registrata</div></div>
-    </div>
+        <!-- Lista spese -->
+        <div class="card">
+            <h2>Elenco Spese</h2>
+            <div id="expensesList"><div class="empty-state">Nessuna spesa registrata</div></div>
+        </div>
 
-    <!-- Lista spese -->
-    <div class="card">
-        <h2>Elenco Spese</h2>
-        <div id="expensesList"><div class="empty-state">Nessuna spesa registrata</div></div>
-    </div>
+        <!-- Riepilogo -->
+        <div class="card">
+            <h2>Riepilogo</h2>
+            <div class="total-banner" id="totalBanner">Totale: 0,00 EUR</div>
+            <div id="summaryList"></div>
+        </div>
 
-    <!-- Riepilogo -->
-    <div class="card">
-        <h2>Riepilogo</h2>
-        <div class="total-banner" id="totalBanner">Totale: 0,00 EUR</div>
-        <div id="summaryList"></div>
-    </div>
-
-    <!-- Saldo finale -->
-    <div class="card">
-        <h2>Saldo Finale - Chi paga chi</h2>
-        <div id="transfersList"><div class="empty-state">Nessun trasferimento necessario</div></div>
+        <!-- Saldo finale -->
+        <div class="card">
+            <h2>Saldo Finale - Chi paga chi</h2>
+            <div id="transfersList"><div class="empty-state">Nessun trasferimento necessario</div></div>
+        </div>
     </div>
 </div>
 
 <script>
+    let trips = [];
+    let currentTripId = null;
+    let currentTripName = '';
     let participants = [];
     let expenses = [];
     let refunds = [];
     let adminPassword = null;
+    let refreshTimer = null;
 
     // --- AUTH ---
     function doLogin() {
@@ -347,7 +430,8 @@
         document.getElementById('authBar').innerHTML =
             '<span class="admin-badge">Admin</span> ' +
             '<button class="btn-logout" onclick="doLogout()">Esci</button>';
-        renderAll();
+        renderTripsList();
+        if (currentTripId) renderAll();
     }
 
     function doLogout() {
@@ -357,6 +441,7 @@
         document.getElementById('authBar').innerHTML =
             '<input type="password" id="adminPw" placeholder="Password admin" onkeydown="if(event.key===\'Enter\')doLogin()">' +
             '<button class="btn-primary" onclick="doLogin()">Accedi</button>';
+        renderTripsList();
     }
 
     // --- API helpers ---
@@ -383,8 +468,82 @@
         return data;
     }
 
+    // --- VIAGGI ---
+    async function loadTrips() {
+        const data = await api('GET', '/api/trips');
+        if (data) {
+            trips = data;
+            renderTripsList();
+        }
+    }
+
+    function renderTripsList() {
+        const list = document.getElementById('tripsList');
+        if (!trips.length) {
+            list.innerHTML = '<div class="empty-state">Nessun viaggio. ' +
+                (adminPassword ? 'Creane uno qui sopra.' : 'Accedi come admin per crearne uno.') + '</div>';
+            return;
+        }
+        list.innerHTML = trips.map(t =>
+            '<div class="trip-item" onclick="selectTrip(\'' + t.id + '\',\'' + t.name.replace(/'/g, "\\'") + '\')">' +
+                '<div class="trip-name">' + escapeHtml(t.name) + '</div>' +
+                '<button class="btn-danger btn-small" onclick="event.stopPropagation();removeTrip(\'' + t.id + '\',\'' + t.name.replace(/'/g, "\\'") + '\')">Elimina</button>' +
+            '</div>'
+        ).join('');
+    }
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+        }[c]));
+    }
+
+    async function addTrip() {
+        const input = document.getElementById('newTripName');
+        const name = input.value.trim();
+        if (!name) return;
+        const result = await api('POST', '/api/trips', { name });
+        if (result) {
+            input.value = '';
+            await loadTrips();
+        }
+    }
+
+    async function removeTrip(id, name) {
+        if (!confirm('Eliminare il viaggio "' + name + '" e tutti i suoi dati (partecipanti, spese, restituzioni)?')) return;
+        const result = await api('DELETE', '/api/trips/' + id);
+        if (result) {
+            if (currentTripId === id) changeTrip();
+            await loadTrips();
+        }
+    }
+
+    function selectTrip(id, name) {
+        currentTripId = id;
+        currentTripName = name;
+        document.getElementById('currentTripName').textContent = name;
+        document.getElementById('tripSelectView').style.display = 'none';
+        document.getElementById('tripView').style.display = 'block';
+        loadData();
+        if (refreshTimer) clearInterval(refreshTimer);
+        refreshTimer = setInterval(loadData, 30000);
+    }
+
+    function changeTrip() {
+        currentTripId = null;
+        currentTripName = '';
+        participants = [];
+        expenses = [];
+        refunds = [];
+        document.getElementById('tripSelectView').style.display = 'block';
+        document.getElementById('tripView').style.display = 'none';
+        if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+        loadTrips();
+    }
+
     async function loadData() {
-        const data = await api('GET', '/api/data');
+        if (!currentTripId) return;
+        const data = await api('GET', '/api/data?tripId=' + encodeURIComponent(currentTripId));
         if (data) {
             participants = data.participants || [];
             expenses = data.expenses || [];
@@ -398,7 +557,7 @@
         const input = document.getElementById('newParticipant');
         const name = input.value.trim();
         if (!name) return;
-        const result = await api('POST', '/api/participants', { name });
+        const result = await api('POST', '/api/participants', { name, tripId: currentTripId });
         if (result) {
             input.value = '';
             await loadData();
@@ -430,7 +589,7 @@
         const splitAmong = Array.from(checkboxes).map(cb => cb.value);
         if (splitAmong.length === 0) { alert('Seleziona almeno una persona tra cui dividere'); return; }
 
-        const result = await api('POST', '/api/expenses', { desc, amount, payer, splitAmong });
+        const result = await api('POST', '/api/expenses', { desc, amount, payer, splitAmong, tripId: currentTripId });
         if (result) {
             document.getElementById('expDesc').value = '';
             document.getElementById('expAmount').value = '';
@@ -454,7 +613,7 @@
         if (from === to) { alert('Le due persone devono essere diverse'); return; }
         if (!amount || amount <= 0) { alert('Inserisci un importo valido'); return; }
 
-        const result = await api('POST', '/api/refunds', { from, to, amount });
+        const result = await api('POST', '/api/refunds', { from, to, amount, tripId: currentTripId });
         if (result) {
             document.getElementById('refundAmount').value = '';
             await loadData();
@@ -521,7 +680,7 @@
     }
 
     function fmt(n) {
-        return n.toFixed(2).replace('.', ',') + ' \u20AC';
+        return n.toFixed(2).replace('.', ',') + ' €';
     }
 
     // --- RENDER ---
@@ -534,8 +693,8 @@
             pList.innerHTML = '<div class="empty-state">Nessun partecipante</div>';
         } else {
             pList.innerHTML = participants.map(p =>
-                '<span class="participant-tag">' + p.name +
-                ' <span class="remove" onclick="removeParticipant(\'' + p.id + '\',\'' + p.name.replace(/'/g, "\\'") + '\')">\u00D7</span></span>'
+                '<span class="participant-tag">' + escapeHtml(p.name) +
+                ' <span class="remove" onclick="removeParticipant(\'' + p.id + '\',\'' + p.name.replace(/'/g, "\\'") + '\')">×</span></span>'
             ).join('');
         }
 
@@ -543,23 +702,23 @@
         const payerSelect = document.getElementById('expPayer');
         const curPayer = payerSelect.value;
         payerSelect.innerHTML = '<option value="">Chi ha pagato?</option>' +
-            names.map(n => '<option value="' + n + '"' + (n === curPayer ? ' selected' : '') + '>' + n + '</option>').join('');
+            names.map(n => '<option value="' + escapeHtml(n) + '"' + (n === curPayer ? ' selected' : '') + '>' + escapeHtml(n) + '</option>').join('');
 
         // Split checkboxes
         document.getElementById('expSplitGroup').innerHTML = names.map(n =>
-            '<label><input type="checkbox" value="' + n + '" checked> ' + n + '</label>'
+            '<label><input type="checkbox" value="' + escapeHtml(n) + '" checked> ' + escapeHtml(n) + '</label>'
         ).join('');
 
         // Refund dropdowns
         const refFrom = document.getElementById('refundFrom');
         const curFrom = refFrom.value;
         refFrom.innerHTML = '<option value="">Da chi</option>' +
-            names.map(n => '<option value="' + n + '"' + (n === curFrom ? ' selected' : '') + '>' + n + '</option>').join('');
+            names.map(n => '<option value="' + escapeHtml(n) + '"' + (n === curFrom ? ' selected' : '') + '>' + escapeHtml(n) + '</option>').join('');
 
         const refTo = document.getElementById('refundTo');
         const curTo = refTo.value;
         refTo.innerHTML = '<option value="">A chi</option>' +
-            names.map(n => '<option value="' + n + '"' + (n === curTo ? ' selected' : '') + '>' + n + '</option>').join('');
+            names.map(n => '<option value="' + escapeHtml(n) + '"' + (n === curTo ? ' selected' : '') + '>' + escapeHtml(n) + '</option>').join('');
 
         // Refunds list
         const rList = document.getElementById('refundsList');
@@ -568,7 +727,7 @@
         } else {
             rList.innerHTML = refunds.map(r =>
                 '<div class="refund-item">' +
-                    '<div class="refund-info"><div class="refund-detail"><strong>' + r.from + '</strong> ha restituito a <strong>' + r.to + '</strong></div></div>' +
+                    '<div class="refund-info"><div class="refund-detail"><strong>' + escapeHtml(r.from) + '</strong> ha restituito a <strong>' + escapeHtml(r.to) + '</strong></div></div>' +
                     '<div class="refund-amount">' + fmt(r.amount) + '</div>' +
                     '<button class="btn-danger btn-small" onclick="removeRefund(\'' + r.id + '\')">X</button>' +
                 '</div>'
@@ -583,8 +742,8 @@
             eList.innerHTML = expenses.map(e =>
                 '<div class="expense-item">' +
                     '<div class="expense-info">' +
-                        '<div class="expense-desc">' + e.desc + '</div>' +
-                        '<div class="expense-detail">Pagato da <strong>' + e.payer + '</strong> \u2022 Diviso tra: ' + e.splitAmong.join(', ') + '</div>' +
+                        '<div class="expense-desc">' + escapeHtml(e.desc) + '</div>' +
+                        '<div class="expense-detail">Pagato da <strong>' + escapeHtml(e.payer) + '</strong> • Diviso tra: ' + e.splitAmong.map(escapeHtml).join(', ') + '</div>' +
                     '</div>' +
                     '<div class="expense-amount">' + fmt(e.amount) + '</div>' +
                     '<button class="btn-danger btn-small" onclick="removeExpense(\'' + e.id + '\')">X</button>' +
@@ -618,7 +777,7 @@
                 const b = balances[n];
                 const net = b.paid - b.owes;
                 return '<div class="summary-row">' +
-                    '<span class="summary-name">' + n + '</span>' +
+                    '<span class="summary-name">' + escapeHtml(n) + '</span>' +
                     '<span style="color:#555;font-size:0.9em;">Costo: ' + fmt(costPerPerson[n]) + '</span>' +
                     '<span class="summary-paid">Pagato: ' + fmt(b.paid) + '</span>' +
                     '<span style="font-weight:700;font-size:1.05em;" class="' + (net >= 0 ? 'positive' : 'negative') + '">' + (net >= 0 ? '+' : '') + fmt(net) + '</span>' +
@@ -633,15 +792,13 @@
             tList.innerHTML = '<div class="empty-state">Tutti i conti sono in pari!</div>';
         } else {
             tList.innerHTML = transfers.map(t =>
-                '<div class="transfer-item"><strong>' + t.from + '</strong> deve dare <strong>' + fmt(t.amount) + '</strong> a <strong>' + t.to + '</strong></div>'
+                '<div class="transfer-item"><strong>' + escapeHtml(t.from) + '</strong> deve dare <strong>' + fmt(t.amount) + '</strong> a <strong>' + escapeHtml(t.to) + '</strong></div>'
             ).join('');
         }
     }
 
     // --- INIT ---
-    loadData();
-    // Aggiorna i dati ogni 30 secondi per chi sta solo guardando
-    setInterval(loadData, 30000);
+    loadTrips();
 </script>
 
 </body>

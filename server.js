@@ -11,26 +11,132 @@ const db = createClient({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
+async function tableExists(name) {
+  const r = await db.execute({
+    sql: "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+    args: [name],
+  });
+  return r.rows.length > 0;
+}
+
+async function columnExists(table, column) {
+  try {
+    const r = await db.execute(`PRAGMA table_info(${table})`);
+    return r.rows.some((row) => row.name === column);
+  } catch {
+    return false;
+  }
+}
+
 async function initDB() {
-  await db.batch([
-    `CREATE TABLE IF NOT EXISTS participants (
+  // Tabella viaggi
+  await db.execute(`CREATE TABLE IF NOT EXISTS trips (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at INTEGER DEFAULT (strftime('%s','now'))
+  )`);
+
+  const hadParticipants = await tableExists("participants");
+  const needsMigration =
+    hadParticipants && !(await columnExists("participants", "trip_id"));
+
+  if (needsMigration) {
+    // Migrazione da vecchio schema a nuovo schema (con trip_id)
+    const defaultTripId = "trip-" + Date.now();
+    const countRow = await db.execute("SELECT COUNT(*) AS c FROM participants");
+    const hasOldData = Number(countRow.rows[0].c) > 0;
+
+    if (hasOldData) {
+      await db.execute({
+        sql: "INSERT INTO trips (id, name) VALUES (?, ?)",
+        args: [defaultTripId, "Viaggio principale"],
+      });
+    }
+
+    // participants
+    await db.execute("ALTER TABLE participants RENAME TO participants_old");
+    await db.execute(`CREATE TABLE participants (
       id TEXT PRIMARY KEY,
-      name TEXT UNIQUE NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS expenses (
-      id TEXT PRIMARY KEY,
-      desc TEXT NOT NULL,
-      amount REAL NOT NULL,
-      payer TEXT NOT NULL,
-      splitAmong TEXT NOT NULL
-    )`,
-    `CREATE TABLE IF NOT EXISTS refunds (
-      id TEXT PRIMARY KEY,
-      "from" TEXT NOT NULL,
-      "to" TEXT NOT NULL,
-      amount REAL NOT NULL
-    )`,
-  ]);
+      name TEXT NOT NULL,
+      trip_id TEXT NOT NULL,
+      UNIQUE(trip_id, name)
+    )`);
+    if (hasOldData) {
+      await db.execute({
+        sql: "INSERT INTO participants (id, name, trip_id) SELECT id, name, ? FROM participants_old",
+        args: [defaultTripId],
+      });
+    }
+    await db.execute("DROP TABLE participants_old");
+
+    // expenses
+    if (await tableExists("expenses")) {
+      await db.execute("ALTER TABLE expenses RENAME TO expenses_old");
+      await db.execute(`CREATE TABLE expenses (
+        id TEXT PRIMARY KEY,
+        desc TEXT NOT NULL,
+        amount REAL NOT NULL,
+        payer TEXT NOT NULL,
+        splitAmong TEXT NOT NULL,
+        trip_id TEXT NOT NULL
+      )`);
+      if (hasOldData) {
+        await db.execute({
+          sql:
+            "INSERT INTO expenses (id, desc, amount, payer, splitAmong, trip_id) " +
+            "SELECT id, desc, amount, payer, splitAmong, ? FROM expenses_old",
+          args: [defaultTripId],
+        });
+      }
+      await db.execute("DROP TABLE expenses_old");
+    }
+
+    // refunds
+    if (await tableExists("refunds")) {
+      await db.execute("ALTER TABLE refunds RENAME TO refunds_old");
+      await db.execute(`CREATE TABLE refunds (
+        id TEXT PRIMARY KEY,
+        "from" TEXT NOT NULL,
+        "to" TEXT NOT NULL,
+        amount REAL NOT NULL,
+        trip_id TEXT NOT NULL
+      )`);
+      if (hasOldData) {
+        await db.execute({
+          sql:
+            'INSERT INTO refunds (id, "from", "to", amount, trip_id) ' +
+            'SELECT id, "from", "to", amount, ? FROM refunds_old',
+          args: [defaultTripId],
+        });
+      }
+      await db.execute("DROP TABLE refunds_old");
+    }
+  } else if (!hadParticipants) {
+    // Prima installazione
+    await db.batch([
+      `CREATE TABLE participants (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        trip_id TEXT NOT NULL,
+        UNIQUE(trip_id, name)
+      )`,
+      `CREATE TABLE expenses (
+        id TEXT PRIMARY KEY,
+        desc TEXT NOT NULL,
+        amount REAL NOT NULL,
+        payer TEXT NOT NULL,
+        splitAmong TEXT NOT NULL,
+        trip_id TEXT NOT NULL
+      )`,
+      `CREATE TABLE refunds (
+        id TEXT PRIMARY KEY,
+        "from" TEXT NOT NULL,
+        "to" TEXT NOT NULL,
+        amount REAL NOT NULL,
+        trip_id TEXT NOT NULL
+      )`,
+    ]);
+  }
 }
 
 // --- Password admin ---
@@ -44,12 +150,63 @@ function checkAdmin(req, res, next) {
   next();
 }
 
+function requireTripId(req, res) {
+  const tripId = req.query.tripId || (req.body && req.body.tripId);
+  if (!tripId) {
+    res.status(400).json({ error: "tripId richiesto" });
+    return null;
+  }
+  return tripId;
+}
+
+// --- API Viaggi ---
+app.get("/api/trips", async (req, res) => {
+  const r = await db.execute(
+    "SELECT id, name, created_at FROM trips ORDER BY created_at DESC, name"
+  );
+  res.json(r.rows);
+});
+
+app.post("/api/trips", checkAdmin, async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim())
+    return res.status(400).json({ error: "Nome viaggio richiesto" });
+  const id = "trip-" + Date.now();
+  await db.execute({
+    sql: "INSERT INTO trips (id, name) VALUES (?, ?)",
+    args: [id, name.trim()],
+  });
+  res.json({ id, name: name.trim() });
+});
+
+app.delete("/api/trips/:id", checkAdmin, async (req, res) => {
+  const id = req.params.id;
+  await db.batch([
+    { sql: "DELETE FROM participants WHERE trip_id = ?", args: [id] },
+    { sql: "DELETE FROM expenses WHERE trip_id = ?", args: [id] },
+    { sql: "DELETE FROM refunds WHERE trip_id = ?", args: [id] },
+    { sql: "DELETE FROM trips WHERE id = ?", args: [id] },
+  ]);
+  res.json({ ok: true });
+});
+
 // --- API lettura (pubblica) ---
 app.get("/api/data", async (req, res) => {
+  const tripId = requireTripId(req, res);
+  if (!tripId) return;
   const [participants, expenses, refunds] = await Promise.all([
-    db.execute("SELECT * FROM participants"),
-    db.execute("SELECT * FROM expenses"),
-    db.execute('SELECT id, "from", "to", amount FROM refunds'),
+    db.execute({
+      sql: "SELECT id, name FROM participants WHERE trip_id = ?",
+      args: [tripId],
+    }),
+    db.execute({
+      sql: "SELECT * FROM expenses WHERE trip_id = ?",
+      args: [tripId],
+    }),
+    db.execute({
+      sql: 'SELECT id, "from", "to", amount FROM refunds WHERE trip_id = ?',
+      args: [tripId],
+    }),
   ]);
   res.json({
     participants: participants.rows,
@@ -65,18 +222,22 @@ app.get("/api/data", async (req, res) => {
 
 // Partecipanti
 app.post("/api/participants", checkAdmin, async (req, res) => {
-  const { name } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: "Nome richiesto" });
+  const { name, tripId } = req.body;
+  if (!tripId) return res.status(400).json({ error: "tripId richiesto" });
+  if (!name || !name.trim())
+    return res.status(400).json({ error: "Nome richiesto" });
   const id = Date.now().toString();
   try {
     await db.execute({
-      sql: "INSERT INTO participants (id, name) VALUES (?, ?)",
-      args: [id, name.trim()],
+      sql: "INSERT INTO participants (id, name, trip_id) VALUES (?, ?, ?)",
+      args: [id, name.trim(), tripId],
     });
     res.json({ id, name: name.trim() });
   } catch (e) {
     if (e.message.includes("UNIQUE")) {
-      return res.status(400).json({ error: "Partecipante gia' presente" });
+      return res
+        .status(400)
+        .json({ error: "Partecipante gia' presente in questo viaggio" });
     }
     throw e;
   }
@@ -84,14 +245,21 @@ app.post("/api/participants", checkAdmin, async (req, res) => {
 
 app.delete("/api/participants/:id", checkAdmin, async (req, res) => {
   const row = await db.execute({
-    sql: "SELECT name FROM participants WHERE id = ?",
+    sql: "SELECT name, trip_id FROM participants WHERE id = ?",
     args: [req.params.id],
   });
   if (!row.rows.length) return res.status(404).json({ error: "Non trovato" });
-  const name = row.rows[0].name;
+  const { name, trip_id: tripId } = row.rows[0];
   await db.batch([
-    { sql: "DELETE FROM expenses WHERE payer = ? OR splitAmong LIKE ?", args: [name, `%"${name}"%`] },
-    { sql: 'DELETE FROM refunds WHERE "from" = ? OR "to" = ?', args: [name, name] },
+    {
+      sql:
+        "DELETE FROM expenses WHERE trip_id = ? AND (payer = ? OR splitAmong LIKE ?)",
+      args: [tripId, name, `%"${name}"%`],
+    },
+    {
+      sql: 'DELETE FROM refunds WHERE trip_id = ? AND ("from" = ? OR "to" = ?)',
+      args: [tripId, name, name],
+    },
     { sql: "DELETE FROM participants WHERE id = ?", args: [req.params.id] },
   ]);
   res.json({ ok: true });
@@ -99,7 +267,8 @@ app.delete("/api/participants/:id", checkAdmin, async (req, res) => {
 
 // Spese
 app.post("/api/expenses", checkAdmin, async (req, res) => {
-  const { desc, amount, payer, splitAmong } = req.body;
+  const { desc, amount, payer, splitAmong, tripId } = req.body;
+  if (!tripId) return res.status(400).json({ error: "tripId richiesto" });
   if (!desc || !amount || !payer || !splitAmong || !splitAmong.length) {
     return res.status(400).json({ error: "Dati incompleti" });
   }
@@ -112,20 +281,32 @@ app.post("/api/expenses", checkAdmin, async (req, res) => {
     splitAmong,
   };
   await db.execute({
-    sql: "INSERT INTO expenses (id, desc, amount, payer, splitAmong) VALUES (?, ?, ?, ?, ?)",
-    args: [id, expense.desc, expense.amount, expense.payer, JSON.stringify(splitAmong)],
+    sql:
+      "INSERT INTO expenses (id, desc, amount, payer, splitAmong, trip_id) VALUES (?, ?, ?, ?, ?, ?)",
+    args: [
+      id,
+      expense.desc,
+      expense.amount,
+      expense.payer,
+      JSON.stringify(splitAmong),
+      tripId,
+    ],
   });
   res.json(expense);
 });
 
 app.delete("/api/expenses/:id", checkAdmin, async (req, res) => {
-  await db.execute({ sql: "DELETE FROM expenses WHERE id = ?", args: [req.params.id] });
+  await db.execute({
+    sql: "DELETE FROM expenses WHERE id = ?",
+    args: [req.params.id],
+  });
   res.json({ ok: true });
 });
 
 // Restituzioni
 app.post("/api/refunds", checkAdmin, async (req, res) => {
-  const { from, to, amount } = req.body;
+  const { from, to, amount, tripId } = req.body;
+  if (!tripId) return res.status(400).json({ error: "tripId richiesto" });
   if (!from || !to || !amount) {
     return res.status(400).json({ error: "Dati incompleti" });
   }
@@ -135,14 +316,18 @@ app.post("/api/refunds", checkAdmin, async (req, res) => {
   const id = Date.now().toString();
   const refund = { id, from, to, amount: parseFloat(amount) };
   await db.execute({
-    sql: 'INSERT INTO refunds (id, "from", "to", amount) VALUES (?, ?, ?, ?)',
-    args: [id, from, to, refund.amount],
+    sql:
+      'INSERT INTO refunds (id, "from", "to", amount, trip_id) VALUES (?, ?, ?, ?, ?)',
+    args: [id, from, to, refund.amount, tripId],
   });
   res.json(refund);
 });
 
 app.delete("/api/refunds/:id", checkAdmin, async (req, res) => {
-  await db.execute({ sql: "DELETE FROM refunds WHERE id = ?", args: [req.params.id] });
+  await db.execute({
+    sql: "DELETE FROM refunds WHERE id = ?",
+    args: [req.params.id],
+  });
   res.json({ ok: true });
 });
 
