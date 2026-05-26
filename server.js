@@ -1,9 +1,16 @@
 const express = require("express");
 const { createClient } = require("@libsql/client");
 
+const path = require("path");
+
 const app = express();
 app.use(express.json());
 app.use(express.static("public"));
+
+// Permalink ai viaggi: /1, /2, ... servono lo stesso index.html (routing lato client)
+app.get(/^\/\d+$/, (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
 
 // --- Database Turso (SQLite cloud) ---
 const db = createClient({
@@ -35,6 +42,10 @@ async function initDB() {
     name TEXT NOT NULL,
     created_at INTEGER DEFAULT (strftime('%s','now'))
   )`);
+
+  if (!(await columnExists("trips", "estimated_per_person"))) {
+    await db.execute("ALTER TABLE trips ADD COLUMN estimated_per_person REAL");
+  }
 
   const hadParticipants = await tableExists("participants");
   const needsMigration =
@@ -162,7 +173,7 @@ function requireTripId(req, res) {
 // --- API Viaggi ---
 app.get("/api/trips", async (req, res) => {
   const r = await db.execute(
-    "SELECT id, name, created_at FROM trips ORDER BY created_at DESC, name"
+    "SELECT id, name, created_at, estimated_per_person FROM trips ORDER BY created_at DESC, name"
   );
   res.json(r.rows);
 });
@@ -177,6 +188,24 @@ app.post("/api/trips", checkAdmin, async (req, res) => {
     args: [id, name.trim()],
   });
   res.json({ id, name: name.trim() });
+});
+
+app.patch("/api/trips/:id", checkAdmin, async (req, res) => {
+  const id = req.params.id;
+  const { estimated_per_person } = req.body;
+  let value = null;
+  if (estimated_per_person !== null && estimated_per_person !== undefined && estimated_per_person !== "") {
+    const parsed = parseFloat(estimated_per_person);
+    if (isNaN(parsed) || parsed < 0) {
+      return res.status(400).json({ error: "Importo non valido" });
+    }
+    value = parsed;
+  }
+  await db.execute({
+    sql: "UPDATE trips SET estimated_per_person = ? WHERE id = ?",
+    args: [value, id],
+  });
+  res.json({ ok: true, estimated_per_person: value });
 });
 
 app.delete("/api/trips/:id", checkAdmin, async (req, res) => {
