@@ -336,15 +336,21 @@
             <button class="btn-secondary btn-small" onclick="changeTrip()">Cambia viaggio</button>
         </div>
 
-        <!-- Spesa stimata a persona -->
+        <!-- Spese stimate a persona -->
         <div class="card">
-            <h2>Spesa Stimata a Persona</h2>
-            <div id="estimatedDisplay" class="empty-state">Nessuna stima impostata</div>
-            <div class="admin-only" id="cardEstimated" style="margin-top:10px;">
+            <h2>Spese Stimate a Persona</h2>
+            <div class="admin-only" id="cardAddEstimated" style="margin-bottom:10px;">
                 <div class="form-row">
-                    <input type="number" id="estimatedInput" placeholder="Importo stimato a persona (EUR)" step="0.01" min="0">
-                    <button class="btn-primary" onclick="saveEstimated()">Salva</button>
-                    <button class="btn-secondary" onclick="clearEstimated()">Azzera</button>
+                    <input type="text" id="estDesc" placeholder="Voce (es. volo, hotel, cibo...)">
+                    <input type="number" id="estAmount" placeholder="Importo (EUR)" step="0.01" min="0">
+                    <button class="btn-primary" onclick="addEstimated()">Aggiungi</button>
+                </div>
+            </div>
+            <div id="estimatedList"><div class="empty-state">Nessuna voce stimata</div></div>
+            <div id="estimatedTotal" style="margin-top:12px;padding-top:12px;border-top:2px solid #e8e8e8;display:none;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:600;color:#16213e;">Totale stimato a persona</span>
+                    <span id="estimatedTotalValue" style="font-size:1.2em;font-weight:700;color:#16213e;"></span>
                 </div>
             </div>
         </div>
@@ -427,12 +433,16 @@
     let trips = [];
     let currentTripId = null;
     let currentTripName = '';
-    let currentEstimated = null;
     let participants = [];
     let expenses = [];
     let refunds = [];
+    let estimatedExpenses = [];
     let adminPassword = null;
     let refreshTimer = null;
+
+    function estimatedTotal() {
+        return estimatedExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+    }
 
     // --- AUTH ---
     function doLogin() {
@@ -552,15 +562,12 @@
     function selectTrip(id, name, opts) {
         currentTripId = id;
         currentTripName = name;
-        const t = trips.find(x => x.id === id);
-        currentEstimated = (t && t.estimated_per_person != null) ? Number(t.estimated_per_person) : null;
         document.getElementById('currentTripName').textContent = name;
         document.getElementById('tripSelectView').style.display = 'none';
         document.getElementById('tripView').style.display = 'block';
-        renderEstimated();
         loadData();
         if (refreshTimer) clearInterval(refreshTimer);
-        refreshTimer = setInterval(refreshTripState, 30000);
+        refreshTimer = setInterval(loadData, 30000);
         if (!opts || !opts.skipUrlUpdate) {
             const url = urlForTripId(id);
             if (window.location.pathname !== url) {
@@ -569,25 +576,13 @@
         }
     }
 
-    async function refreshTripState() {
-        if (!currentTripId) return;
-        const data = await api('GET', '/api/trips');
-        if (data) {
-            trips = data;
-            const t = trips.find(x => x.id === currentTripId);
-            currentEstimated = (t && t.estimated_per_person != null) ? Number(t.estimated_per_person) : null;
-            renderEstimated();
-        }
-        await loadData();
-    }
-
     function changeTrip() {
         currentTripId = null;
         currentTripName = '';
-        currentEstimated = null;
         participants = [];
         expenses = [];
         refunds = [];
+        estimatedExpenses = [];
         document.getElementById('tripSelectView').style.display = 'block';
         document.getElementById('tripView').style.display = 'none';
         if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
@@ -597,42 +592,23 @@
         loadTrips();
     }
 
-    function renderEstimated() {
-        const display = document.getElementById('estimatedDisplay');
-        const input = document.getElementById('estimatedInput');
-        if (currentEstimated != null) {
-            display.classList.remove('empty-state');
-            display.innerHTML = '<div style="font-size:1.3em;font-weight:700;color:#16213e;">' + fmt(currentEstimated) + ' <span style="font-size:0.7em;color:#666;font-weight:500;">a persona</span></div>';
-            if (input) input.value = currentEstimated.toFixed(2);
-        } else {
-            display.classList.add('empty-state');
-            display.textContent = 'Nessuna stima impostata';
-            if (input) input.value = '';
+    async function addEstimated() {
+        const desc = document.getElementById('estDesc').value.trim();
+        const amount = parseFloat(document.getElementById('estAmount').value);
+        if (!desc) { alert('Inserisci una descrizione'); return; }
+        if (!amount || amount <= 0) { alert('Inserisci un importo valido'); return; }
+        const result = await api('POST', '/api/estimated-expenses', { desc, amount, tripId: currentTripId });
+        if (result) {
+            document.getElementById('estDesc').value = '';
+            document.getElementById('estAmount').value = '';
+            await loadData();
         }
     }
 
-    async function saveEstimated() {
-        const v = document.getElementById('estimatedInput').value;
-        if (!v || parseFloat(v) <= 0) { alert('Inserisci un importo valido'); return; }
-        const result = await api('PATCH', '/api/trips/' + currentTripId, { estimated_per_person: parseFloat(v) });
-        if (result) {
-            currentEstimated = result.estimated_per_person;
-            renderEstimated();
-            renderAll();
-            await loadTrips();
-        }
-    }
-
-    async function clearEstimated() {
-        if (currentEstimated == null) return;
-        if (!confirm('Azzerare la spesa stimata a persona?')) return;
-        const result = await api('PATCH', '/api/trips/' + currentTripId, { estimated_per_person: null });
-        if (result) {
-            currentEstimated = null;
-            renderEstimated();
-            renderAll();
-            await loadTrips();
-        }
+    async function removeEstimated(id) {
+        if (!confirm('Eliminare questa voce stimata?')) return;
+        const result = await api('DELETE', '/api/estimated-expenses/' + id);
+        if (result) await loadData();
     }
 
     async function loadData() {
@@ -642,6 +618,7 @@
             participants = data.participants || [];
             expenses = data.expenses || [];
             refunds = data.refunds || [];
+            estimatedExpenses = data.estimatedExpenses || [];
             renderAll();
         }
     }
@@ -778,8 +755,31 @@
     }
 
     // --- RENDER ---
+    function renderEstimatedList() {
+        const listEl = document.getElementById('estimatedList');
+        const totalEl = document.getElementById('estimatedTotal');
+        const totalValEl = document.getElementById('estimatedTotalValue');
+        if (estimatedExpenses.length === 0) {
+            listEl.innerHTML = '<div class="empty-state">Nessuna voce stimata</div>';
+            totalEl.style.display = 'none';
+            return;
+        }
+        listEl.innerHTML = estimatedExpenses.map(e =>
+            '<div class="expense-item">' +
+                '<div class="expense-info"><div class="expense-desc">' + escapeHtml(e.desc) + '</div></div>' +
+                '<div class="expense-amount" style="color:#16213e;">' + fmt(Number(e.amount)) + '</div>' +
+                '<button class="btn-danger btn-small" onclick="removeEstimated(\'' + e.id + '\')">X</button>' +
+            '</div>'
+        ).join('');
+        totalValEl.textContent = fmt(estimatedTotal());
+        totalEl.style.display = 'block';
+    }
+
     function renderAll() {
         const names = participants.map(p => p.name);
+        renderEstimatedList();
+        const estTotal = estimatedTotal();
+        const hasEstimate = estTotal > 0;
 
         // Participants
         const pList = document.getElementById('participantsList');
@@ -863,9 +863,9 @@
         if (names.length > 0) {
             banner += '<br><span style="font-size:0.7em;color:#666;">Media a testa: ' + fmt(total / names.length) + '</span>';
         }
-        if (currentEstimated != null && names.length > 0) {
-            const budgetTotal = currentEstimated * names.length;
-            banner += '<br><span style="font-size:0.7em;color:#666;">Budget stimato: ' + fmt(budgetTotal) + ' (' + fmt(currentEstimated) + ' x ' + names.length + ')</span>';
+        if (hasEstimate && names.length > 0) {
+            const budgetTotal = estTotal * names.length;
+            banner += '<br><span style="font-size:0.7em;color:#666;">Budget stimato: ' + fmt(budgetTotal) + ' (' + fmt(estTotal) + ' x ' + names.length + ')</span>';
         }
         document.getElementById('totalBanner').innerHTML = banner;
 
@@ -877,8 +877,8 @@
                 const b = balances[n];
                 const net = b.paid - b.owes;
                 let diffHtml = '';
-                if (currentEstimated != null) {
-                    const diff = costPerPerson[n] - currentEstimated;
+                if (hasEstimate) {
+                    const diff = costPerPerson[n] - estTotal;
                     const cls = diff > 0.01 ? 'negative' : (diff < -0.01 ? 'positive' : '');
                     const sign = diff > 0 ? '+' : '';
                     diffHtml = '<span style="font-size:0.85em;" class="' + cls + '">vs stima: ' + sign + fmt(diff) + '</span>';
@@ -918,10 +918,10 @@
                 // siamo tornati a /
                 currentTripId = null;
                 currentTripName = '';
-                currentEstimated = null;
                 participants = [];
                 expenses = [];
                 refunds = [];
+                estimatedExpenses = [];
                 document.getElementById('tripSelectView').style.display = 'block';
                 document.getElementById('tripView').style.display = 'none';
                 if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }

@@ -43,9 +43,13 @@ async function initDB() {
     created_at INTEGER DEFAULT (strftime('%s','now'))
   )`);
 
-  if (!(await columnExists("trips", "estimated_per_person"))) {
-    await db.execute("ALTER TABLE trips ADD COLUMN estimated_per_person REAL");
-  }
+  // Tabella spese stimate (singole voci che sommate danno la stima totale a persona)
+  await db.execute(`CREATE TABLE IF NOT EXISTS estimated_expenses (
+    id TEXT PRIMARY KEY,
+    trip_id TEXT NOT NULL,
+    desc TEXT NOT NULL,
+    amount REAL NOT NULL
+  )`);
 
   const hadParticipants = await tableExists("participants");
   const needsMigration =
@@ -173,7 +177,7 @@ function requireTripId(req, res) {
 // --- API Viaggi ---
 app.get("/api/trips", async (req, res) => {
   const r = await db.execute(
-    "SELECT id, name, created_at, estimated_per_person FROM trips ORDER BY created_at DESC, name"
+    "SELECT id, name, created_at FROM trips ORDER BY created_at DESC, name"
   );
   res.json(r.rows);
 });
@@ -190,30 +194,13 @@ app.post("/api/trips", checkAdmin, async (req, res) => {
   res.json({ id, name: name.trim() });
 });
 
-app.patch("/api/trips/:id", checkAdmin, async (req, res) => {
-  const id = req.params.id;
-  const { estimated_per_person } = req.body;
-  let value = null;
-  if (estimated_per_person !== null && estimated_per_person !== undefined && estimated_per_person !== "") {
-    const parsed = parseFloat(estimated_per_person);
-    if (isNaN(parsed) || parsed < 0) {
-      return res.status(400).json({ error: "Importo non valido" });
-    }
-    value = parsed;
-  }
-  await db.execute({
-    sql: "UPDATE trips SET estimated_per_person = ? WHERE id = ?",
-    args: [value, id],
-  });
-  res.json({ ok: true, estimated_per_person: value });
-});
-
 app.delete("/api/trips/:id", checkAdmin, async (req, res) => {
   const id = req.params.id;
   await db.batch([
     { sql: "DELETE FROM participants WHERE trip_id = ?", args: [id] },
     { sql: "DELETE FROM expenses WHERE trip_id = ?", args: [id] },
     { sql: "DELETE FROM refunds WHERE trip_id = ?", args: [id] },
+    { sql: "DELETE FROM estimated_expenses WHERE trip_id = ?", args: [id] },
     { sql: "DELETE FROM trips WHERE id = ?", args: [id] },
   ]);
   res.json({ ok: true });
@@ -223,7 +210,7 @@ app.delete("/api/trips/:id", checkAdmin, async (req, res) => {
 app.get("/api/data", async (req, res) => {
   const tripId = requireTripId(req, res);
   if (!tripId) return;
-  const [participants, expenses, refunds] = await Promise.all([
+  const [participants, expenses, refunds, estimated] = await Promise.all([
     db.execute({
       sql: "SELECT id, name FROM participants WHERE trip_id = ?",
       args: [tripId],
@@ -236,6 +223,10 @@ app.get("/api/data", async (req, res) => {
       sql: 'SELECT id, "from", "to", amount FROM refunds WHERE trip_id = ?',
       args: [tripId],
     }),
+    db.execute({
+      sql: "SELECT id, desc, amount FROM estimated_expenses WHERE trip_id = ?",
+      args: [tripId],
+    }),
   ]);
   res.json({
     participants: participants.rows,
@@ -244,6 +235,7 @@ app.get("/api/data", async (req, res) => {
       splitAmong: JSON.parse(e.splitAmong),
     })),
     refunds: refunds.rows,
+    estimatedExpenses: estimated.rows,
   });
 });
 
@@ -355,6 +347,34 @@ app.post("/api/refunds", checkAdmin, async (req, res) => {
 app.delete("/api/refunds/:id", checkAdmin, async (req, res) => {
   await db.execute({
     sql: "DELETE FROM refunds WHERE id = ?",
+    args: [req.params.id],
+  });
+  res.json({ ok: true });
+});
+
+// Spese stimate (singole voci a persona)
+app.post("/api/estimated-expenses", checkAdmin, async (req, res) => {
+  const { desc, amount, tripId } = req.body;
+  if (!tripId) return res.status(400).json({ error: "tripId richiesto" });
+  if (!desc || !desc.trim()) {
+    return res.status(400).json({ error: "Descrizione richiesta" });
+  }
+  const parsed = parseFloat(amount);
+  if (isNaN(parsed) || parsed <= 0) {
+    return res.status(400).json({ error: "Importo non valido" });
+  }
+  const id = Date.now().toString();
+  await db.execute({
+    sql:
+      "INSERT INTO estimated_expenses (id, trip_id, desc, amount) VALUES (?, ?, ?, ?)",
+    args: [id, tripId, desc.trim(), parsed],
+  });
+  res.json({ id, desc: desc.trim(), amount: parsed });
+});
+
+app.delete("/api/estimated-expenses/:id", checkAdmin, async (req, res) => {
+  await db.execute({
+    sql: "DELETE FROM estimated_expenses WHERE id = ?",
     args: [req.params.id],
   });
   res.json({ ok: true });
